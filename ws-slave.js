@@ -93,17 +93,17 @@ const CommandedScanState_StopScan = 0;
 const CommandedScanState_StartScan = 1;
 
 let currentCommandedState = CommandedScanState_Unknown;
-function stopScanning() {
+function stopScanning(because) {
   if(currentCommandedState !== CommandedScanState_StopScan) {
     currentCommandedState = CommandedScanState_StopScan;
-    console.log("ws-slave telling noble to stop scanning ");
+    console.log("ws-slave telling noble to stop scanning because " + because);
     noble.stopScanning();
   }
 }
-function startScanning(uuidsToHit, allowDuplicates) {
+function startScanning(uuidsToHit, allowDuplicates, because) {
   if(currentCommandedState !== CommandedScanState_StartScan) {
     currentCommandedState = CommandedScanState_StartScan;
-    console.log("ws-slave telling noble to start scanning ", uuidsToHit);
+    console.log("ws-slave telling noble to start scanning " + JSON.stringify(uuidsToHit) + " because " + because);
     noble.startScanning(uuidsToHit, allowDuplicates);
   }
 }
@@ -125,11 +125,11 @@ function notifyScanRelevantEvent() {
     const uuidsToHit = Object.keys(scanServiceUuids);
 
     uuidsToHit.sort();
-    stopScanning();
+    stopScanning("stopping scanning because no context is connected");
 
     if(g_fEnableRealScanning) {
       try {
-        startScanning(uuidsToHit, true);
+        startScanning(uuidsToHit, true, "enable-real-scanning is on, and nobody else is connected");
       } catch(e) {
         console.error("failure during startScanning", e);
       }
@@ -138,7 +138,7 @@ function notifyScanRelevantEvent() {
     g_currentScanUuids = uuidsToHit;
   } else {
     // some context is connected, so we gotta stop scanning
-    stopScanning();
+    stopScanning("stopping scanning because a context is connected");
   }
 }
 
@@ -806,6 +806,8 @@ var onMessage = function (contextId, message) {
       // errr... you get to time out, mr. command!
       // in my experience, this occurs if HCI/etc screwed the pooch while trying to enumerate services, and then
       // the calling app tries to stopNotifications on a stale characteristic
+      console.log(`Errr, you tried to notify on a characteristic ${characteristicUuid} on peripheral ${peripheralUuid} we don't think exists`, command);
+      debugger;
     }
   } else if (action === 'discoverDescriptors') {
     characteristic.discoverDescriptors();
@@ -842,8 +844,21 @@ function wipeOldListeners(peripheral, andThisToo) {
 
 noble.on('discover', function (peripheral) {
 
-  console.log("noticed ", peripheral.advertisement.localName, " with ", peripheral.advertisement.serviceUuids.length, " services");
+  console.log("noticed ", peripheral.advertisement.localName, " with ", peripheral.advertisement.serviceUuids.length, " services at uuid " + peripheral.uuid + " / " + peripheral.address);
   assert(peripheral.advertisement.serviceUuids.length > 0, "gotta have services!");
+
+
+  let cMatches = 0;
+  for(var key in mapNoticedPeripherals) {
+    const oldPeriph = mapNoticedPeripherals[key];
+    if(oldPeriph.advertisement.localName === peripheral.advertisement.localName) {
+      cMatches++;
+      assert(peripheral.address === oldPeriph.peripheral.address);
+      assert(peripheral.uuid === oldPeriph.peripheral.uuid);
+    }
+  }
+  assert(cMatches <= 1, "there should only be one thing that matches us");
+
   if(mapNoticedPeripherals[peripheral.uuid]) {
     const oldPeriph = mapNoticedPeripherals[peripheral.uuid];
 
@@ -851,6 +866,8 @@ noble.on('discover', function (peripheral) {
     assert(peripheral.uuid === oldPeriph.peripheral.uuid);
 
     oldPeriph.tmNow = new Date().getTime();
+    oldPeriph.peripheral.address = peripheral.address;
+    oldPeriph.peripheral.uuid = peripheral.uuid;
   } else {
     mapNoticedPeripherals[peripheral.uuid] = new NoticedPeripheral(peripheral, new Date().getTime());
   }
