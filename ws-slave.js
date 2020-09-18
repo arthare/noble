@@ -8,6 +8,7 @@ var noble = require('./index');
 var defaultScanUuid = process.argv[3] || "1818";
 var g_fEnableRealScanning = true;
 var child_process = require('child_process');
+var permaScanner;
 
 var wss;
 function assert(f, reason) {
@@ -15,6 +16,13 @@ function assert(f, reason) {
     console.log(reason);
     debugger;
   }
+}
+
+function exitWithCode(code) {
+  if(permaScanner) {
+    permaScanner.kill(9);
+  }
+  process.exit(code);
 }
 
 const ConnectionState_Disconnected = 0;
@@ -103,6 +111,7 @@ myScanServer.on('connection', (socket) => {
     if(data.evt === 'discover') {
       // the scanner process has found a thing!  let's see which of our contexts would be interested in it.
       const periph = data.data;
+      console.log("scanproc told us about ", periph.advertisement.localName);
       noble.onReviveStoredPeripheral(periph.uuid, periph.address, periph.addressType, periph.connectable, periph.advertisement, periph.rssi);
     }
 
@@ -114,14 +123,13 @@ myScanServer.on('error', (err) => {
 let runArgs = process.argv.slice(1);
 runArgs = runArgs.map((arg) => arg.replace("ws-slave", "scanner"));
 console.log("making new scan process with ", runArgs);
-const permaScanner = child_process.spawn("node", runArgs);
+permaScanner = child_process.spawn("node", runArgs);
 permaScanner.on('close', (code) => {
   console.log("scanner process closed ", code);
-  process.exit(1);
 })
 permaScanner.on('exit', (code) => {
   console.log("scanner process exit ", code);
-  process.exit(1);
+  exitWithCode(1);
 })
 permaScanner.stdout.on('data', (chunk) => {
   console.log("SCANPROC STDOUT: " + chunk.toString());
@@ -141,12 +149,12 @@ myControlSocket.on('message', (msg) => {
 myControlSocket.on('close', () => {
   // if our host closes, so do we.
   console.log("Main OMP app closed, so we shall too");
-  process.exit(0);
+  exitWithCode(0);
 });
 myControlSocket.on('error', () => {
   // if we can't connect to our host, we close
   console.log("Main OMP app closed, so we shall too");
-  process.exit(0);
+  exitWithCode(0);
 })
 
 wss = new WebSocket.Server({

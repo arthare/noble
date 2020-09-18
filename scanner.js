@@ -12,8 +12,9 @@ var g_scanSocket;
 
 noble.on('discover', function (peripheral) {
 
+  //console.log("scanproc: discovered");
   if(g_scanSocket) {
-    console.log("sending info about ", peripheral.advertisement.localName);
+    //console.log("sending info about ", peripheral.advertisement.localName);
 
     const myCopy = Object.assign({}, peripheral);
     delete myCopy._noble;
@@ -26,6 +27,7 @@ noble.on('discover', function (peripheral) {
 
 
 noble.on('stateChange', (state) => {
+  console.log("scanproc: statechange: ", state);
   if(state === 'poweredOn') {
 
     // start our websocket connection to the ws-slave process
@@ -39,15 +41,18 @@ noble.on('stateChange', (state) => {
       console.log("Scanner: host process lost");
       process.exit(0);
     })
+    scanSocket.on('error', (err) => {
+      console.log("Scanner: err: ", err);
+      process.exit(0);
+    })
 
     function doScanCycle() {
-      console.log("cycle");
-      noble.startScanning();
-      setTimeout(() => {
-        noble.stopScanning(() => {
+      noble.startScanning(undefined, false, (err) => {
+        setTimeout(() => {
+          noble.stopScanning();
           doScanCycle();
-        })
-      }, 7500);
+        }, 5000);
+      });
     }
     doScanCycle();
       
