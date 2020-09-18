@@ -111,7 +111,7 @@ myScanServer.on('connection', (socket) => {
     if(data.evt === 'discover') {
       // the scanner process has found a thing!  let's see which of our contexts would be interested in it.
       const periph = data.data;
-      console.log("scanproc told us about ", periph.advertisement.localName);
+      //console.log("scanproc told us about ", periph.advertisement.localName);
       noble.onReviveStoredPeripheral(periph.uuid, periph.address, periph.addressType, periph.connectable, periph.advertisement, periph.rssi);
     }
 
@@ -337,6 +337,7 @@ function handleDiscoveredPeripheral(peripheral, initialAdvertisement) {
 
     if(!ctx.isScanningForPeripheral()) {
       // if you're simply not scanning, that's totally fine
+      //console.log("notify about " + initialAdvertisement && initialAdvertisement.localName, ". " + "ctx ", key, " is not scanning for peripherals");
       continue;
     }
 
@@ -748,6 +749,6 @@ function wipeOldListeners(peripheral, andThisToo) {
 
 
 noble.on('discover', function (peripheral) {
-
+  //console.log("noble thinks we discovered ", peripheral.advertisement.localName);
   handleDiscoveredPeripheral(peripheral);
 });
