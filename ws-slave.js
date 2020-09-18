@@ -141,12 +141,12 @@ myControlSocket.on('message', (msg) => {
 myControlSocket.on('close', () => {
   // if our host closes, so do we.
   console.log("Main OMP app closed, so we shall too");
-  //process.exit(0);
+  process.exit(0);
 });
 myControlSocket.on('error', () => {
   // if we can't connect to our host, we close
   console.log("Main OMP app closed, so we shall too");
-  //process.exit(0);
+  process.exit(0);
 })
 
 wss = new WebSocket.Server({
