@@ -112,7 +112,7 @@ myScanServer.on('error', (err) => {
   console.log("scan server had error", err);
 })
 let runArgs = process.argv.slice(1);
-runArgs = runArgs.map((arg) => arg.replace("ws-slave.js", "scanner.js"));
+runArgs = runArgs.map((arg) => arg.replace("ws-slave", "scanner"));
 console.log("making new scan process with ", runArgs);
 const permaScanner = child_process.spawn("node", runArgs);
 permaScanner.on('close', (code) => {
