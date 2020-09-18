@@ -14,7 +14,7 @@ function isSlaveProcess() {
 }
 
 var bindings;
-if(isSlaveProcess() || process.argv[1].includes("ws-slave")) {
+if(isSlaveProcess() || process.argv[1].includes("ws-slave") || process.argv[1].includes('scanner')) {
     bindings = require('./lib/resolve-bindings')();
     module.exports = new Noble(bindings);
 } else {

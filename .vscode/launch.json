@@ -7,11 +7,20 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Launch Program",
+            "name": "Launch Ws-Slave",
             "skipFiles": [
                 "<node_internals>/**"
             ],
             "program": "${workspaceFolder}/ws-slave.js"
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Launch Scanner",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "${workspaceFolder}/scanner.js"
         }
     ]
 }

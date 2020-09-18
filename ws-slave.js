@@ -7,6 +7,7 @@ var noble = require('./index');
 
 var defaultScanUuid = process.argv[3] || "1818";
 var g_fEnableRealScanning = true;
+var child_process = require('child_process');
 
 var wss;
 function assert(f, reason) {
@@ -88,101 +89,64 @@ if(defaultScanUuid) {
   g_currentScanUuids = [defaultScanUuid];
 }
 
-const CommandedScanState_Unknown = -1;
-const CommandedScanState_StopScan = 0;
-const CommandedScanState_StartScan = 1;
-
-let currentCommandedState = CommandedScanState_Unknown;
-function stopScanning(because) {
-  if(currentCommandedState !== CommandedScanState_StopScan) {
-    currentCommandedState = CommandedScanState_StopScan;
-    console.log("ws-slave telling noble to stop scanning because " + because);
-    noble.stopScanning();
-  }
-}
-function startScanning(uuidsToHit, allowDuplicates, because) {
-  if(currentCommandedState !== CommandedScanState_StartScan) {
-    currentCommandedState = CommandedScanState_StartScan;
-    console.log("ws-slave telling noble to start scanning " + JSON.stringify(uuidsToHit) + " because " + because);
-    noble.startScanning(uuidsToHit, allowDuplicates);
-  }
-}
-
-function notifyScanRelevantEvent() {
-
-  if(!isAnyContextConnected() && !isAnyContextConnecting()) {
-
-    let scanServiceUuids = {};
-    for(var key in contexts) {
-      if(key === 'eventNames') {debugger;}
-      const ctx = contexts[key];
-      if(ctx.isScanningForPeripheral()) {
-        ctx.activeScanServiceUuids.forEach((uuid) => scanServiceUuids[uuid] = true);
-      }
-    }
-    g_currentScanUuids.forEach((uuid) => scanServiceUuids[uuid] = true);
-
-    const uuidsToHit = Object.keys(scanServiceUuids);
-
-    uuidsToHit.sort();
-    stopScanning("stopping scanning because no context is connected");
-
-    if(g_fEnableRealScanning) {
-      try {
-        startScanning(uuidsToHit, true, "enable-real-scanning is on, and nobody else is connected");
-      } catch(e) {
-        console.error("failure during startScanning", e);
-      }
-      
-    }
-    g_currentScanUuids = uuidsToHit;
-  } else {
-    // some context is connected, so we gotta stop scanning
-    stopScanning("stopping scanning because a context is connected");
-  }
-}
-
 console.log('noble - ws slave - server mode');
-wss = new WebSocket.Server({
-  port: 0xB1e
+
+const scanPort = 0xb1d;
+const myScanServer = new WebSocket.Server({
+  port: scanPort
 });
+myScanServer.on('connection', (socket) => {
+  console.log("scan server received incoming socket");
+  socket.on('message', (msg) => {
+    const data = JSON.parse(msg);
+
+    if(data.evt === 'discover') {
+      // the scanner process has found a thing!  let's see which of our contexts would be interested in it.
+      const periph = data.data;
+      noble.onReviveStoredPeripheral(periph.uuid, periph.address, periph.addressType, periph.connectable, periph.advertisement, periph.rssi);
+    }
+
+  })
+});
+myScanServer.on('error', (err) => {
+  console.log("scan server had error", err);
+})
+const runArgs = process.argv.slice(1);
+runArgs[0] = runArgs[0].replace("ws-slave.js", "scanner.js");
+const permaScanner = child_process.spawn("node", runArgs);
+permaScanner.on('close', (code) => {
+  console.log("scanner process closed ", code);
+  process.exit(1);
+})
+permaScanner.stdout.on('data', (chunk) => {
+  console.log("SCANPROC STDOUT: " + chunk.toString());
+})
+permaScanner.stderr.on('data', (chunk) => {
+  console.error("SCANPROC STDERR: " + chunk.toString());
+})
+
+
 
 
 const controlPort = 0xb1f;
 const myControlSocket = new WebSocket(`ws://localhost:${controlPort}`);
 myControlSocket.on('message', (msg) => {
-  switch(msg) {
-    case 'enable-real-scanning':
-      g_fEnableRealScanning = true;
-      notifyScanRelevantEvent();
-      break;
-    case 'disable-real-scanning':
-      g_fEnableRealScanning = false;
-      notifyScanRelevantEvent();
-      break;
-    case 'prepare-for-shutdown':
-      // let's store all the key information about these peripherals so that when we restart we can resume
-      const toSave = {};
-      for(var key in mapNoticedPeripherals) {
-        delete mapNoticedPeripherals[key].peripheral._noble;
-        toSave[key] = mapNoticedPeripherals[key].toSaveable();
-      }
-      fs.writeFileSync('./map-noticed-peripherals.json', JSON.stringify(toSave));
-      myControlSocket.send('prepared-for-shutdown');
-      break;
-  }
+  
 })
 myControlSocket.on('close', () => {
   // if our host closes, so do we.
-  process.exit(0);
+  console.log("Main OMP app closed, so we shall too");
+  //process.exit(0);
 });
 myControlSocket.on('error', () => {
   // if we can't connect to our host, we close
-  process.exit(0);
+  console.log("Main OMP app closed, so we shall too");
+  //process.exit(0);
 })
 
-notifyScanRelevantEvent();
-
+wss = new WebSocket.Server({
+  port: 0xB1e
+});
 wss.on('connection', function (ws) {
   console.log('ws -> connection');
 
@@ -224,7 +188,6 @@ wss.on('connection', function (ws) {
     ws.removeAllListeners('close');
     ws.removeAllListeners('open');
     ws.removeAllListeners('message');
-    notifyScanRelevantEvent();
   });
 
   noble.on('stateChange', function (state) {
@@ -354,12 +317,7 @@ class NoticedPeripheral {
   }
 };
 
-const mapNoticedPeripherals = {};
-
-
 function handleDiscoveredPeripheral(peripheral, initialAdvertisement) {
-
-  assert(peripheral.once); // this needs to be a real peripheral, not some fake one
 
   for(var key in contexts) {
     const ctx = contexts[key];
@@ -404,70 +362,10 @@ function handleDiscoveredPeripheral(peripheral, initialAdvertisement) {
   }
 }
 
-var fHaveLoadedOldOnes = false;
-function loadSavedPeripherals() {
-  if(!fHaveLoadedOldOnes) {
-    fHaveLoadedOldOnes = true;
-    try {
-      // load the old cache of peripherals.  We might have just restarted and certainly shouldn't spend
-      // our time re-scanning for everything.
-      const newNoticedPeriph = JSON.parse(fs.readFileSync('./map-noticed-peripherals.json', 'utf8'));
-      for(var key in newNoticedPeriph) {
-
-        const oldPeriph = newNoticedPeriph[key].peripheral;
-
-        noble.onReviveStoredPeripheral(oldPeriph.id, 
-                         oldPeriph.address, 
-                         oldPeriph.addressType, 
-                         oldPeriph.connectable, 
-                         newNoticedPeriph[key].advertisement, 
-                         oldPeriph.rssi);
-        //mapNoticedPeripherals[key] = new NoticedPeripheral(realPeriph, new Date().getTime());
-        //mapNoticedPeripherals[key].peripheral._noble = noble;
-      }
-    } catch(e) {
-
-    }
-  }
-  
-}
-function dumpNoticedPeripherals(andContinueSequence) {
-
-  try {
-    if(isAnyContextScanning()) {
-      for(var key in mapNoticedPeripherals) {
-        const noticedPeriph = mapNoticedPeripherals[key];
-  
-        if(isAnyContextConnectedTo(noticedPeriph.peripheral.uuid) || isAnyContextConnectingTo(noticedPeriph.peripheral.uuid)) {
-          // someone is already connected to this guy, so don't tell anyone else about it.
-          continue;
-        }
-  
-        //const uuids = noticedPeriph.advertisement && noticedPeriph.advertisement.serviceUuids;
-        //console.log("faking like we just discovered ", noticedPeriph.advertisement.localName, " with ", uuids && uuids.length, " services");
-  
-        assert(noticedPeriph.peripheral._noble, "peripheral needs noble!");
-        handleDiscoveredPeripheral(noticedPeriph.peripheral, noticedPeriph.advertisement);
-      }
-    }
-  } catch(e) {
-    debugger;
-  }
-
-  if(andContinueSequence) {
-    setTimeout(() => {
-      dumpNoticedPeripherals(andContinueSequence);
-    }, 750);
-  }
-}
-dumpNoticedPeripherals(true);
-
 function handleScanningRequestFromContext(ctx, serviceUuids, allowDuplicates) {
 
   // nobody is currently connected, so we can start scanning.
   ctx.startScanning(serviceUuids, allowDuplicates);
-  dumpNoticedPeripherals(false);
-  notifyScanRelevantEvent();
 }
 
 
@@ -545,7 +443,6 @@ var onMessage = function (contextId, message) {
 
   } else if (action === 'stopScanning') {
     ctx.stopScanning();
-    notifyScanRelevantEvent();
   } else if (action === 'connect') {
 
     peripheral.removeAllListeners('connect');
@@ -568,8 +465,6 @@ var onMessage = function (contextId, message) {
         });
 
       }
-
-      notifyScanRelevantEvent();
     });
     peripheral.removeAllListeners('disconnect');
     peripheral.once('disconnect', function () {
@@ -582,8 +477,6 @@ var onMessage = function (contextId, message) {
   
       wipeOldListeners(peripheral, true);
       peripheral.contextId = null;
-
-      notifyScanRelevantEvent();
     });
 
     if(ctx.isConnected() && ctx.getConnectedUuid() === peripheralUuid) {
@@ -597,7 +490,6 @@ var onMessage = function (contextId, message) {
     } else {
       console.log(contextId + "ws-slave connection to " + peripheral.advertisement.localName + " starting");
       ctx.setConnected(ConnectionState_Connecting, peripheralUuid);
-      notifyScanRelevantEvent();
       peripheral.connect(undefined, contextId);
     }
 
@@ -844,39 +736,5 @@ function wipeOldListeners(peripheral, andThisToo) {
 
 noble.on('discover', function (peripheral) {
 
-  console.log("noticed ", peripheral.advertisement.localName, " with ", peripheral.advertisement.serviceUuids.length, " services at uuid " + peripheral.uuid + " / " + peripheral.address);
-  assert(peripheral.advertisement.serviceUuids.length > 0, "gotta have services!");
-
-
-  let cMatches = 0;
-  for(var key in mapNoticedPeripherals) {
-    const oldPeriph = mapNoticedPeripherals[key];
-    if(oldPeriph.advertisement.localName === peripheral.advertisement.localName) {
-      cMatches++;
-      assert(peripheral.address === oldPeriph.peripheral.address);
-      assert(peripheral.uuid === oldPeriph.peripheral.uuid);
-    }
-  }
-  assert(cMatches <= 1, "there should only be one thing that matches us");
-
-  if(mapNoticedPeripherals[peripheral.uuid]) {
-    const oldPeriph = mapNoticedPeripherals[peripheral.uuid];
-
-    assert(peripheral.address === oldPeriph.peripheral.address);
-    assert(peripheral.uuid === oldPeriph.peripheral.uuid);
-
-    oldPeriph.tmNow = new Date().getTime();
-    oldPeriph.peripheral.address = peripheral.address;
-    oldPeriph.peripheral.uuid = peripheral.uuid;
-  } else {
-    mapNoticedPeripherals[peripheral.uuid] = new NoticedPeripheral(peripheral, new Date().getTime());
-  }
-
-  assert(peripheral._noble, "peripheral needs noble!");
   handleDiscoveredPeripheral(peripheral);
 });
-
-
-
-// now that we've set up 'discover' fully, let's pump through all the stored cranks
-loadSavedPeripherals();
