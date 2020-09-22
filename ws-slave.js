@@ -1,14 +1,16 @@
 /* jshint loopfunc: true */
 var WebSocket = require('ws');
-var fs = require('fs');
-var Peripheral = require('./lib/peripheral');
 
 var noble = require('./index');
 
 var defaultScanUuid = process.argv[3] || "1818";
-var g_fEnableRealScanning = true;
 var child_process = require('child_process');
 var permaScanner;
+
+const scanPort = 0xb1d;
+const myScanServer = new WebSocket.Server({
+  port: scanPort
+});
 
 var wss;
 function assert(f, reason) {
@@ -25,6 +27,19 @@ function exitWithCode(code) {
   process.exit(code);
 }
 
+function notifyScanRelevantEvent() {
+  // something has changed
+  
+  if(g_scannerSocket) {
+    if(isAnyContextScanning()) {
+      console.log("telling scanner to start")
+      g_scannerSocket.send("start");
+    } else {
+      console.log("telling scanner to stop");
+      g_scannerSocket.send("stop");
+    }
+  }
+}
 const ConnectionState_Disconnected = 0;
 const ConnectionState_Connecting = 1;
 const ConnectionState_Connected = 2;
@@ -49,9 +64,12 @@ class NobleClientContext {
     this.allowDuplicates = allowDuplicates;
     this.activeScanServiceUuids = serviceUuids;
     assert(serviceUuids.length > 0, "you gotta actually want to be scanning, right?");
+
+    notifyScanRelevantEvent();
   }
   stopScanning() {
     this.activeScanServiceUuids = [];
+    notifyScanRelevantEvent();
   }
   isConnecting() {
     return this.connectionState === ConnectionState_Connecting;
@@ -91,7 +109,6 @@ let nextContextId = 0;
 
 
 var g_currentScanUuids = [];
-var g_fStoppedScanning = true;
 
 if(defaultScanUuid) {
   g_currentScanUuids = [defaultScanUuid];
@@ -99,12 +116,9 @@ if(defaultScanUuid) {
 
 console.log('noble - ws slave - server mode');
 
-const scanPort = 0xb1d;
-const myScanServer = new WebSocket.Server({
-  port: scanPort
-});
 myScanServer.on('connection', (socket) => {
   console.log("scan server received incoming socket");
+  g_scannerSocket = socket;
   socket.on('message', (msg) => {
     const data = JSON.parse(msg);
 
@@ -115,6 +129,9 @@ myScanServer.on('connection', (socket) => {
       noble.onReviveStoredPeripheral(periph.uuid, periph.address, periph.addressType, periph.connectable, periph.advertisement, periph.rssi);
     }
 
+  });
+  socket.on('close', (msg) => {
+    g_scannerSocket = null;
   })
 });
 myScanServer.on('error', (err) => {
@@ -227,10 +244,6 @@ function sendEvent (contextId, event) {
     debugger;
   }
   var message = JSON.stringify(event);
-
-  if(!event.serviceUuid || (event.serviceUuid !== "1818")) {
-    //console.log(`ws -> send ${contextId}: ${message}`);
-  }
 
   const ctx = contexts[contextId];
   if(!ctx) {

@@ -9,6 +9,7 @@ var noble = require('./index');
 var WebSocket = require('ws');
 
 var g_scanSocket;
+let g_fMoreScanningRequested = true;
 
 noble.on('discover', function (peripheral) {
 
@@ -25,6 +26,16 @@ noble.on('discover', function (peripheral) {
   }
 });
 
+function doScanCycle() {
+  noble.startScanning(undefined, false, (err) => {
+    setTimeout(() => {
+      noble.stopScanning();
+      if(g_fMoreScanningRequested) {
+        doScanCycle();
+      }
+    }, 5000);
+  });
+}
 
 noble.on('stateChange', (state) => {
   console.log("scanproc: statechange: ", state);
@@ -44,16 +55,22 @@ noble.on('stateChange', (state) => {
     scanSocket.on('error', (err) => {
       console.log("Scanner: err: ", err);
       process.exit(0);
+    });
+
+    scanSocket.on('message', (msg) => {
+      switch(msg) {
+        case 'stop':
+          g_fMoreScanningRequested = false;
+          break;
+        case 'start':
+          if(!g_fMoreScanningRequested) {
+            g_fMoreScanningRequested = true;
+            doScanCycle();
+          }
+          break;
+      }
     })
 
-    function doScanCycle() {
-      noble.startScanning(undefined, false, (err) => {
-        setTimeout(() => {
-          noble.stopScanning();
-          doScanCycle();
-        }, 5000);
-      });
-    }
     doScanCycle();
       
   }
