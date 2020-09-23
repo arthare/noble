@@ -11,29 +11,55 @@ var WebSocket = require('ws');
 var g_scanSocket;
 let g_fMoreScanningRequested = true;
 
+let recentlySeen = {};
+
+
 noble.on('discover', function (peripheral) {
+
+  if(!peripheral || 
+     !peripheral.advertisement ||
+     !peripheral.advertisement.localName) {
+    return;
+  }
+  const myCopy = Object.assign({}, peripheral);
+  delete myCopy._noble;
+  const key = peripheral.advertisement.localName;
+  const tmNow = new Date().getTime();
+  recentlySeen[key] = {
+    tmNow,
+    peripheral: myCopy,
+  }
+  
+
+  const keysToKill = [];
+  for(var keyToCheck in recentlySeen) {
+    if(recentlySeen[keyToCheck].tmNow < tmNow - 20000) {
+      keysToKill.push(keyToCheck);
+    }
+  }
+  keysToKill.forEach((keyToKill) => delete recentlySeen[keyToKill]);
 
   //console.log("scanproc: discovered");
   if(g_scanSocket) {
-    //console.log("sending info about ", peripheral.advertisement.localName);
+    console.log("sending info about ", Object.keys(recentlySeen));
 
-    const myCopy = Object.assign({}, peripheral);
-    delete myCopy._noble;
-    g_scanSocket.send(JSON.stringify({
-      evt: 'discover',
-      data: myCopy,
-    }));
+    for(var keyToSend in recentlySeen) {
+      g_scanSocket.send(JSON.stringify({
+        evt: 'discover',
+        data: recentlySeen[keyToSend].peripheral,
+      }));
+    }
   }
 });
 
 function doScanCycle() {
-  noble.startScanning(undefined, false, (err) => {
+  noble.startScanning(undefined, true, (err) => {
     setTimeout(() => {
       noble.stopScanning();
       if(g_fMoreScanningRequested) {
         doScanCycle();
       }
-    }, 5000);
+    }, 10000);
   });
 }
 
