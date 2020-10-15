@@ -9,7 +9,7 @@ if(process.env.debug) {
 function isSlaveProcess() {
 
   return (!!process.argv.find((arg) => {
-    return arg === "out-of-proc";
+    return arg === "out-of-proc" || arg === "use-noble-inproc";
   }));
 }
 
