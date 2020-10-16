@@ -95,6 +95,7 @@ app.get('/addresses', (req, res) => {
       addressType: addr.addressType,
     }
   }
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.writeHead(200, 'ok');
   res.write(JSON.stringify(ret));
   res.end();
