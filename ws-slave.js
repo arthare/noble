@@ -2,6 +2,7 @@
 var WebSocket = require('ws');
 var fs = require('fs');
 var Peripheral = require('./lib/peripheral');
+var child_process = require('child_process');
 
 var noble = require('./index');
 
@@ -76,6 +77,7 @@ class NobleClientContext {
     return false;
   }
 }
+
 
 const contexts = {};
 let nextContextId = 0;
@@ -880,3 +882,20 @@ noble.on('discover', function (peripheral) {
 
 // now that we've set up 'discover' fully, let's pump through all the stored cranks
 loadSavedPeripherals();
+
+function startScanner() {
+
+  let myArgs = process.argv.slice();
+  myArgs = myArgs.map((arg) => arg.replace('ws-slave', 'scanner'));
+  myArgs = [...myArgs, 'use-noble-inproc'];
+
+  const scanner = child_process.spawn(myArgs[0], myArgs.slice(1));
+  scanner.on('exit', () => {
+    debugger;
+    startScanner();
+  });
+  scanner.on('error', (err) => {
+    debugger;
+  })
+}
+startScanner();
