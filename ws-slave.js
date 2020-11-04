@@ -6,6 +6,7 @@ var noble = require('./index');
 var defaultScanUuid = process.argv[3] || "1818";
 var child_process = require('child_process');
 var permaScanner;
+var g_scannerSocket;
 
 const scanPort = 0xb1d;
 const myScanServer = new WebSocket.Server({
