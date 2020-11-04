@@ -8,6 +8,8 @@
 var noble = require('./index');
 var WebSocket = require('ws');
 
+var defaultScanUuid = process.argv[3] || "1818";
+
 var g_scanSocket;
 let g_fMoreScanningRequested = true;
 
@@ -53,7 +55,7 @@ noble.on('discover', function (peripheral) {
 });
 
 function doScanCycle() {
-  noble.startScanning(undefined, true, (err) => {
+  noble.startScanning([defaultScanUuid], true, (err) => {
     setTimeout(() => {
       noble.stopScanning();
       if(g_fMoreScanningRequested) {
