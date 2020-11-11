@@ -4,14 +4,6 @@ var WebSocket = require('ws');
 var noble = require('./index');
 
 var defaultScanUuid = process.argv[3] || "1818";
-var child_process = require('child_process');
-var permaScanner;
-var g_scannerSocket;
-
-const scanPort = 0xb1d;
-const myScanServer = new WebSocket.Server({
-  port: scanPort
-});
 
 var wss;
 function assert(f, reason) {
@@ -22,25 +14,25 @@ function assert(f, reason) {
 }
 
 function exitWithCode(code) {
-  if(permaScanner) {
-    permaScanner.kill(9);
-  }
   process.exit(code);
 }
 
 function notifyScanRelevantEvent() {
-  // something has changed
-  
-  if(g_scannerSocket) {
-    if(isAnyContextScanning()) {
-      console.log("telling scanner to start")
-      g_scannerSocket.send("start");
-    } else {
-      console.log("telling scanner to stop");
-      g_scannerSocket.send("stop");
+    // something has changed
+    if (noble.state !== 'poweredOn') {
+        // noble state is not poweredOn, ignore scanning
+        return;
     }
-  }
+
+    if(isAnyContextScanning()) {
+        // some contexts want scanning, telling scanner to start
+        noble.startScanning(g_currentScanUuids, true);
+    } else {
+        // no contexts want scanning, telling scanner to stop
+        noble.stopScanning();
+    }
 }
+
 const ConnectionState_Disconnected = 0;
 const ConnectionState_Connecting = 1;
 const ConnectionState_Connected = 2;
@@ -117,53 +109,9 @@ if(defaultScanUuid) {
 
 console.log('noble - ws slave - server mode');
 
-myScanServer.on('connection', (socket) => {
-  console.log("scan server received incoming socket");
-  g_scannerSocket = socket;
-  socket.on('message', (msg) => {
-    const data = JSON.parse(msg);
-
-    if(data.evt === 'discover') {
-      // the scanner process has found a thing!  let's see which of our contexts would be interested in it.
-      const periph = data.data;
-      //console.log("scanproc told us about ", periph.advertisement.localName);
-      noble.onReviveStoredPeripheral(periph.uuid, periph.address, periph.addressType, periph.connectable, periph.advertisement, periph.rssi);
-    }
-
-  });
-  socket.on('close', (msg) => {
-    g_scannerSocket = null;
-  })
-});
-myScanServer.on('error', (err) => {
-  console.log("scan server had error", err);
-})
-let runArgs = process.argv.slice(1);
-runArgs = runArgs.map((arg) => arg.replace("ws-slave", "scanner"));
-console.log("making new scan process with ", runArgs);
-permaScanner = child_process.spawn("node", runArgs);
-permaScanner.on('close', (code) => {
-  console.log("scanner process closed ", code);
-})
-permaScanner.on('exit', (code) => {
-  console.log("scanner process exit ", code);
-  exitWithCode(1);
-})
-permaScanner.stdout.on('data', (chunk) => {
-  console.log("SCANPROC STDOUT: " + chunk.toString());
-})
-permaScanner.stderr.on('data', (chunk) => {
-  console.error("SCANPROC STDERR: " + chunk.toString());
-})
-
-
-
-
 const controlPort = 0xb1f;
 const myControlSocket = new WebSocket(`ws://localhost:${controlPort}`);
-myControlSocket.on('message', (msg) => {
-  
-})
+
 myControlSocket.on('close', () => {
   // if our host closes, so do we.
   console.log("Main OMP app closed, so we shall too");
@@ -219,6 +167,10 @@ wss.on('connection', function (ws) {
     ws.removeAllListeners('close');
     ws.removeAllListeners('open');
     ws.removeAllListeners('message');
+
+    if (contextsLeft <= 0) {
+        notifyScanRelevantEvent();
+    }
   });
 
   noble.on('stateChange', function (state) {
@@ -765,4 +717,21 @@ function wipeOldListeners(peripheral, andThisToo) {
 noble.on('discover', function (peripheral) {
   //console.log("noble thinks we discovered ", peripheral.advertisement.localName);
   handleDiscoveredPeripheral(peripheral);
+});
+
+noble.on('scanStop', function () {
+    // noble has stopped scanning
+
+    // NOTE: noble automatically stops scanning when it connects to a BLE device.
+    // This is not the behaviour we want since we are handling multiple contexts, one
+    // of which may still be searching for a deivce. If we have any context that is
+    // still scanning then we schedule the scanning to restart.
+    if (isAnyContextScanning()) {
+        // Auto restarting scanning, some context still wants it
+        setTimeout(notifyScanRelevantEvent, 250);
+    }
+});
+
+noble.on('scanStart', function () {
+  console.log("Scanning started");
 });
