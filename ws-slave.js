@@ -20,15 +20,15 @@ function exitWithCode(code) {
 function notifyScanRelevantEvent() {
     // something has changed
     if (noble.state !== 'poweredOn') {
-        //console.log("noble state is not poweredOn, ingnore scanning");
+        // noble state is not poweredOn, ignore scanning
         return;
     }
 
     if(isAnyContextScanning()) {
-        //console.log("some contexts want scanning, telling scanner to start");
+        // some contexts want scanning, telling scanner to start
         noble.startScanning(g_currentScanUuids, true);
     } else {
-        //console.log("no contexts want scanning, telling scanner to stop");
+        // no contexts want scanning, telling scanner to stop
         noble.stopScanning();
     }
 }
@@ -111,16 +111,7 @@ console.log('noble - ws slave - server mode');
 
 const controlPort = 0xb1f;
 const myControlSocket = new WebSocket(`ws://localhost:${controlPort}`);
-myControlSocket.on('message', (msg) => {
-  switch(msg) {
-  case 'enable-real-scanning':
-      console.log("##### got enable-real-scanning request");
-      break;
-  case 'disable-real-scanning':
-      console.log("##### got disable-real-scanning request");
-      break;
-  }
-})
+
 myControlSocket.on('close', () => {
   // if our host closes, so do we.
   console.log("Main OMP app closed, so we shall too");
@@ -176,8 +167,9 @@ wss.on('connection', function (ws) {
     ws.removeAllListeners('close');
     ws.removeAllListeners('open');
     ws.removeAllListeners('message');
+
     if (contextsLeft <= 0) {
-      noble.stopScanning();
+        notifyScanRelevantEvent();
     }
   });
 
@@ -728,9 +720,14 @@ noble.on('discover', function (peripheral) {
 });
 
 noble.on('scanStop', function () {
-    //console.log("Scanning stopped");
+    // noble has stopped scanning
+
+    // NOTE: noble automatically stops scanning when it connects to a BLE device.
+    // This is not the behaviour we want since we are handling multiple contexts, one
+    // of which may still be searching for a deivce. If we have any context that is
+    // still scanning then we schedule the scanning to restart.
     if (isAnyContextScanning()) {
-        //console.log("Auto Restarting scanning, some context still wants it");
+        // Auto restarting scanning, some context still wants it
         setTimeout(notifyScanRelevantEvent, 250);
     }
 });
