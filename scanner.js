@@ -25,7 +25,6 @@ noble.on('discover', function (peripheral) {
   const myCopy = Object.assign({}, peripheral);
   delete myCopy._noble;
   const key = peripheral.advertisement.localName;
-  console.log("saw ", key);
   
   const tmNow = new Date().getTime();
   recentlySeen[key] = {
@@ -46,7 +45,6 @@ noble.on('discover', function (peripheral) {
 });
 
 function doScanCycle() {
-  console.log("telling noble to do scan cycle");
   noble.startScanning(["1818"], true, (err) => {
     setTimeout(() => {
       noble.stopScanning();
@@ -56,7 +54,6 @@ function doScanCycle() {
 }
 
 noble.on('stateChange', (state) => {
-  console.log("scanproc: statechange: ", state);
   if(state === 'poweredOn') {
     doScanCycle();
   }
